@@ -1,0 +1,129 @@
+{
+    // Type: string
+    // Format: ISO 8601 date time string
+    // Required: No
+    // Default: Current date
+    // Description: Date the banner becomes active
+    "start_date": "",
+
+    // Type: string
+    // Format: ISO 8601 date time string
+    // Required: Yes
+    // Description: Date the banner expires
+    "end_date": "",
+
+    // Type: string
+    // Required: Yes
+    // Description: Title for the banner
+    "title": "",
+
+    // Type: string
+    // Required: No
+    // Description: Additional banner info. Not supported on all CMSes
+    "description": "",
+
+    // Type: string
+    // Required: Yes
+    // Description: Disclaimer text
+    "disclaimer": "",
+
+    // Type: object
+    // Required: No
+    // Description: Vehicle info
+    // Note: Can be omitted if banner is nonspecific to a vehicle
+    "vehicle": {
+
+        // Type: int
+        // Required: No
+        // Description: Vehicle model year
+        "year": 2020,
+
+        // Type: string
+        // Required: No
+        // Description: Vehicle manufacturer/make
+        "make": "",
+
+        // Type: string
+        // Required: No
+        // Description: Vehicle model
+        "model": "",
+
+        // Type: string
+        // Required: No
+        // Description: Vehicle trim
+        "trim": ""
+    },
+
+    // Type: Array of image objects
+    // Required: Yes
+    // Length: 1-4
+    // Description: Images for the banner. At least one image object must be provided
+    "images": [
+        {
+            // Type: string
+            // Required: Yes
+            // Description: Publicly accessible URL of the image
+            "url": "https://placehold.co/1600x900",
+
+            // Type: string
+            // Required: Yes
+            // Description: Alt text for the image
+            "alt_text": "Lorem ipsum",
+
+            // Type: string
+            // Required: Yes
+            // Description: Image filename, including file extension
+            "filename": "example.png",
+
+            // Type: string
+            // Required: Yes
+            // Allowed values: "desktop", "mobile"
+            // Description: Where the image should be displayed
+            "media": "desktop"
+        }
+    ],
+    
+    // Type: array of link objects
+    // Required: Yes
+    // Minimum items: 0
+    // Description: Links/buttons associated with the banner. The array must
+    // be present but may be empty.
+    "links": [
+        {
+            // Type: string
+            // Required: Yes
+            // Description: URL the link should navigate to
+            "url": "/specials",
+
+            // Type: string
+            // Required: No
+            // Allowed values: "current", "new"
+            // Default: "current"
+            // Description: Whether the destination opens in the current tab or a new tab
+            "target": "current",
+
+            // Type: integer
+            // Required: No
+            // Description: Display order of the link when multiple links are
+            // provided.
+            // Behavior: When omitted, links are displayed in the order they appear in the array
+            "order": 1
+        }
+    ],
+
+    // DealerOn-specific fields
+
+    // Type: boolean
+    // Required: No
+    // Default: false
+    // Description: Controls whether the banner is hidden on desktop devices
+    // Platform: DealerOn only.
+    "hidden_desktop": false,
+
+    // Type: boolean
+    // Required: No
+    // Default: false
+    // Description: Controls whether the banner is hidden on mobile devices
+    // Platform: DealerOn only.
+    "hidden_mobile": false
+}
