@@ -12,13 +12,13 @@
 // @grant        unsafeWindow
 // @connect      *
 // @run-at       document-idle
-// @require      https://raw.githubusercontent.com/YOUR_GITHUB_OWNER/YOUR_REPOSITORY/main/lib/EventBus.js
-// @require      https://raw.githubusercontent.com/YOUR_GITHUB_OWNER/YOUR_REPOSITORY/main/lib/Utils.js
-// @require      https://raw.githubusercontent.com/YOUR_GITHUB_OWNER/YOUR_REPOSITORY/main/lib/BannerInput.js
-// @require      https://raw.githubusercontent.com/YOUR_GITHUB_OWNER/YOUR_REPOSITORY/main/lib/BannerImage.js
-// @require      https://raw.githubusercontent.com/YOUR_GITHUB_OWNER/YOUR_REPOSITORY/main/lib/ImageManager.js
-// @require      https://raw.githubusercontent.com/YOUR_GITHUB_OWNER/YOUR_REPOSITORY/main/lib/UIManager.js
-// @require      https://raw.githubusercontent.com/YOUR_GITHUB_OWNER/YOUR_REPOSITORY/main/cms/DealerOnCMS.js
+// @require      https://raw.githubusercontent.com/Hunter-CHD/banner-automation/main/lib/EventBus.js
+// @require      https://raw.githubusercontent.com/Hunter-CHD/banner-automation/main/lib/Utils.js
+// @require      https://raw.githubusercontent.com/Hunter-CHD/banner-automation/main/lib/BannerInput.js
+// @require      https://raw.githubusercontent.com/Hunter-CHD/banner-automation/main/lib/BannerImage.js
+// @require      https://raw.githubusercontent.com/Hunter-CHD/banner-automation/main/lib/ImageManager.js
+// @require      https://raw.githubusercontent.com/Hunter-CHD/banner-automation/main/lib/UIManager.js
+// @require      https://raw.githubusercontent.com/Hunter-CHD/banner-automation/main/cms/DealerOnCMS.js
 // ==/UserScript==
 
 (async function () {
