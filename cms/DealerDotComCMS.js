@@ -6,17 +6,34 @@
 
 class DealerDotComCMS{
     static async waitForContext(timeout = 30000) {
-        const deadline = Date.now() + timeout;
-        while (Date.now() < deadline) {
-            if (unsafeWindow.ddc?.global?.account?.accountId && unsafeWindow.ddc?.global?.actualUser?.userId) return new DealerDotComCMS();
-            await new Promise(resolve => setTimeout(resolve, 250));
+        if (!Number.isFinite(timeout) || timeout < 0) {
+            throw new TypeError("Dealer.com context timeout must be a finite, nonnegative number of milliseconds");
         }
-        throw new Error("Dealer.com account context did not become available");
+        // Count awaited timer intervals instead of relying on the page's wall clock.
+        // Always check immediately, then re-read the page globals after every wait.
+        let remaining = timeout;
+        let checks = 0;
+        while (true) {
+            const context = unsafeWindow.ddc?.global;
+            const accountId = context?.account?.accountId;
+            const userId = context?.actualUser?.userId;
+            checks++;
+            if (accountId && userId) return new DealerDotComCMS({ accountId, userId });
+            if (remaining === 0) {
+                const missing = [];
+                if (!accountId) missing.push("ddc.global.account.accountId");
+                if (!userId) missing.push("ddc.global.actualUser.userId");
+                throw new Error(`Dealer.com account context did not become available after ${checks} checks (${timeout} ms of polling). Missing: ${missing.join(", ")}`);
+            }
+            const delay = Math.min(250, remaining);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            remaining -= delay;
+        }
     }
 
-    constructor(){
-        this.accountId = unsafeWindow.ddc.global.account.accountId;
-        this.userId = unsafeWindow.ddc.global.actualUser.userId;
+    constructor(context = { accountId: unsafeWindow.ddc.global.account.accountId, userId: unsafeWindow.ddc.global.actualUser.userId }){
+        this.accountId = context.accountId;
+        this.userId = context.userId;
 
         this.mediaRoot = null;
         this.promotionType = "AUTO";

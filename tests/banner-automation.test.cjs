@@ -163,6 +163,62 @@ test('DI selects desktop/mobile assets and sends their filename, alt text, and l
     assert.equal(cms.selectImages(BannerInput.normalize(raw())).length, 1);
 });
 
+test('Dealer.com polls fresh page context until both IDs arrive even with a broken wall clock', async () => {
+    const page = {};
+    const timers = [];
+    const { DealerDotComCMS } = runtime({
+        unsafeWindow: page,
+        Date: class extends Date { static now() { return NaN; } },
+        setTimeout(callback, delay) { timers.push({ callback, delay }); }
+    }, 'DealerDotComCMS');
+    let settled = false;
+    const pending = DealerDotComCMS.waitForContext().finally(() => { settled = true; });
+    assert.equal(timers.length, 1);
+    assert.equal(timers[0].delay, 250);
+    assert.equal(settled, false);
+    page.ddc = { global: { account: { accountId: 'account' } } };
+    timers.shift().callback();
+    await Promise.resolve();
+    assert.equal(timers.length, 1);
+    assert.equal(settled, false, 'An account without a user is not ready');
+    // Replace the global object, as a client-side app can do during initialization.
+    page.ddc.global = { account: { accountId: 'account' }, actualUser: { userId: 'user' } };
+    timers.shift().callback();
+    const cms = await pending;
+    assert.equal(cms.accountId, 'account');
+    assert.equal(cms.userId, 'user');
+    assert.equal(timers.length, 0);
+});
+
+test('Dealer.com waits the entire polling budget and reports missing fields on timeout', async () => {
+    const delays = [];
+    const { DealerDotComCMS } = runtime({
+        unsafeWindow: { ddc: { global: { account: { accountId: 'account' } } } },
+        setTimeout(callback, delay) { delays.push(delay); callback(); }
+    }, 'DealerDotComCMS');
+    await assert.rejects(DealerDotComCMS.waitForContext(), error => {
+        assert.match(error.message, /121 checks \(30000 ms of polling\)/);
+        assert.match(error.message, /Missing: ddc\.global\.actualUser\.userId$/);
+        return true;
+    });
+    assert.equal(delays.length, 120);
+    assert.equal(delays.reduce((sum, delay) => sum + delay, 0), 30000);
+    delays.length = 0;
+    await assert.rejects(DealerDotComCMS.waitForContext(260), /3 checks/);
+    assert.deepEqual(delays, [250, 10]);
+});
+
+test('Dealer.com checks ready context immediately and validates timeout arguments', async () => {
+    const { DealerDotComCMS } = runtime({
+        unsafeWindow: { ddc: { global: { account: { accountId: 'account' }, actualUser: { userId: 'user' } } } },
+        setTimeout() { assert.fail('Ready context must not schedule a timer'); }
+    }, 'DealerDotComCMS');
+    assert.equal((await DealerDotComCMS.waitForContext(0)).accountId, 'account');
+    for (const timeout of [NaN, Infinity, -1, null, '30000']) {
+        await assert.rejects(DealerDotComCMS.waitForContext(timeout), /finite, nonnegative number/);
+    }
+});
+
 test('Dealer.com uses ISO timestamps, ordered primary/secondary links, description, and media placements', async () => {
     let payload;
     const { DealerDotComCMS, BannerInput } = runtime({
