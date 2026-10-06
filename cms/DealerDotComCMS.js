@@ -100,13 +100,20 @@ class DealerDotComCMS{
             assets.get(placement).media.add(image.media);
         }
         const labels = { slide: "Slide", srp: "SRP", coupon: "Coupon" };
+        const titles = {
+            tall_horizontal: "Tall Horizontal (4:1)", short_horizontal: "Short Horizontal (10:1)",
+            tall_vertical: "Tall Vertical (9:16)", short_vertical: "Short Vertical (4:3)"
+        };
         return Array.from(assets.values(), ({ image, placement, media }) => ({
             key: JSON.stringify([placement, image.url]),
             image,
             placement,
             label: `${image.filename} (${image.dimensions.width} × ${image.dimensions.height}) — ${placement.replaceAll("_", " ")}`,
+            title: titles[placement],
+            description: `${image.filename} · ${image.dimensions.width} × ${image.dimensions.height}`,
             options: Object.entries(this.placementTypes[placement]).flatMap(([device, destinations]) => destinations.map(destination => ({
-                value: `${device}.${destination}`, label: `${device === "desktop" ? "Desktop" : "Mobile"} ${labels[destination]}`, checked: media.has(device)
+                value: `${device}.${destination}`, label: `${device === "desktop" ? "Desktop" : "Mobile"} ${labels[destination]}`,
+                deviceLabel: device === "desktop" ? "Desktop" : "Mobile", shortLabel: labels[destination], checked: media.has(device)
             })))
         }));
     }
