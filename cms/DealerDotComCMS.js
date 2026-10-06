@@ -79,7 +79,7 @@ class DealerDotComCMS{
         if (type === "VEHICLE" && (banner.vehicle?.year || banner.vehicle?.trim)) warnings.push("Dealer.com vehicle targeting currently uses make and model only.");
         if (type === "INCENTIVE") warnings.push("Incentive uploads set year and make only; select the incentive and vehicle image in the CMS afterward.");
         if (banner.vehicle && !["VEHICLE", "INCENTIVE"].includes(type)) warnings.push("Vehicle info is not applied to this promotion type.");
-        if (banner.hidden_desktop || banner.hidden_mobile) warnings.push("Device visibility flags apply only to DealerOn; Dealer.com placements follow each image's media value.");
+        if (banner.hidden_desktop || banner.hidden_mobile) warnings.push("Device visibility flags apply only to DealerOn; review the device placements selected below for Dealer.com.");
         return warnings;
     }
 
@@ -90,24 +90,38 @@ class DealerDotComCMS{
             .find(([, expected]) => Math.abs(ratio - expected) < 0.2)?.[0] ?? null;
     }
 
-    prepareImages(images) {
+    getImageOptions(images) {
         const assets = new Map();
-        return images.map(image => {
+        for (const image of images) {
             const placement = DealerDotComCMS.detectPlacementType(image.dimensions.width, image.dimensions.height);
             if (!placement) throw new Error(`${image.filename}: unsupported aspect ratio; use 4:1, 10:1, 9:16, or 4:3`);
-            const destinations = this.placementTypes[placement]?.[image.media];
-            if (!destinations) throw new Error(`${image.filename}: ${placement.replaceAll("_", " ")} has no supported ${image.media} placements`);
-            if (assets.has(placement) && assets.get(placement) !== image.url) throw new Error(`Dealer.com allows only one asset for ${placement}; use different aspect ratios for different images`);
-            assets.set(placement, image.url);
-            return { ...image, placement, destinations };
+            if (assets.has(placement) && assets.get(placement).image.url !== image.url) throw new Error(`Dealer.com allows only one asset for ${placement}; use different aspect ratios for different images`);
+            if (!assets.has(placement)) assets.set(placement, { image, placement, media: new Set() });
+            assets.get(placement).media.add(image.media);
+        }
+        const labels = { slide: "Slide", srp: "SRP", coupon: "Coupon" };
+        return Array.from(assets.values(), ({ image, placement, media }) => ({
+            key: JSON.stringify([placement, image.url]),
+            image,
+            placement,
+            label: `${image.filename} (${image.dimensions.width} × ${image.dimensions.height}) — ${placement.replaceAll("_", " ")}`,
+            options: Object.entries(this.placementTypes[placement]).flatMap(([device, destinations]) => destinations.map(destination => ({
+                value: `${device}.${destination}`, label: `${device === "desktop" ? "Desktop" : "Mobile"} ${labels[destination]}`, checked: media.has(device)
+            })))
+        }));
+    }
+
+    prepareImages(images, selections) {
+        return this.getImageOptions(images).map(group => {
+            const selected = selections === undefined ? group.options.filter(option => option.checked).map(option => option.value) : selections[group.key];
+            if (!Array.isArray(selected) || !selected.length) throw new Error(`${group.image.filename}: select at least one placement`);
+            if (selected.some(value => !group.options.some(option => option.value === value))) throw new Error(`${group.image.filename}: unsupported placement selection`);
+            return { ...group.image, placement: group.placement, destinations: [...new Set(selected)] };
         });
     }
 
     describeImages(images) {
-        const labels = { slide: "Slide", srp: "SRP", coupon: "Coupon" };
-        return this.prepareImages(images).map(image =>
-            `${image.filename} (${image.dimensions.width} × ${image.dimensions.height}): ${image.placement.replaceAll("_", " ")} → ${image.media} ${image.destinations.map(destination => labels[destination]).join(", ")}`
-        ).join("\n");
+        return this.getImageOptions(images).map(group => group.label).join("\n");
     }
 
     async getMediaRoot(){
@@ -229,8 +243,8 @@ class DealerDotComCMS{
         return uploadedImage;
     }
 
-    async uploadBanner(banner, cachedImages = []){
-        const prepared = this.prepareImages(cachedImages);
+    async uploadBanner(banner, cachedImages = [], options = {}){
+        const prepared = this.prepareImages(cachedImages, options.placements);
         if (!prepared.length) throw new Error("No images prepared for upload");
         await this.init();
         const uploadedImages = [];
@@ -300,7 +314,10 @@ class DealerDotComCMS{
             if (img.placement && placementData[img.placement]) {
                 placementData[img.placement].customAsset = img.cmsUrl;
                 placementData[img.placement].enabled = true;
-                placementData[img.placement][img.media] = Object.fromEntries(img.destinations.map(destination => [destination, true]));
+                for (const destination of img.destinations) {
+                    const [device, name] = destination.split(".");
+                    placementData[img.placement][device][name] = true;
+                }
             }
         });
 

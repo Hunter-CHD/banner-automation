@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Dealer.com Banner Uploader
 // @namespace    http://tampermonkey.net/
-// @version      2.0.2
+// @version      2.0.3
 // @description  Multiple banner uploads with progress tracking
 // @author       Hunter Adams
 // @match        *://apps.dealercenter.coxautoinc.com/promotions/manager/*
