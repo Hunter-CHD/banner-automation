@@ -227,8 +227,6 @@ test('Dealer.com uses ISO timestamps, ordered primary/secondary links, descripti
     }, 'DealerDotComCMS');
     const cms = new DealerDotComCMS();
     cms.init = async () => {}; cms.uploadImage = async () => 'cms-asset.png';
-    cms.placements.tall_horizontal.desktop.slide = true;
-    cms.placements.short_vertical.mobile.coupon = true;
     const banner = BannerInput.normalize({ ...raw(), description: 'Description', vehicle: { make: 'Honda', model: 'Civic' }, links: [{ url: '/second', order: 2 }, { url: 'https://example.com/first', target: 'new', order: 1 }] });
     await cms.uploadBanner(banner, [image()]);
     assert.equal(payload.startDate, Date.parse(banner.start_date));
@@ -245,25 +243,89 @@ test('Dealer.com uses ISO timestamps, ordered primary/secondary links, descripti
     assert.equal(payload.destinationUrl, null); assert.equal(payload.ctaConfig, null);
 });
 
-test('Dealer.com rejects unsupported, unselected, or conflicting placements before any upload', async () => {
+test('Dealer.com rejects unsupported dimensions, device combinations, or conflicting assets before uploading', async () => {
     const { DealerDotComCMS, BannerInput } = runtime({ unsafeWindow: { ddc: { global: { account: { accountId: 'a' }, actualUser: { userId: 'u' } } } } }, 'DealerDotComCMS');
     const cms = new DealerDotComCMS();
     cms.uploadImage = async () => { assert.fail('Must not upload invalid placements'); };
     const banner = BannerInput.normalize(raw());
-    await assert.rejects(cms.uploadBanner(banner, [image()]), /select a desktop/);
-    cms.placements.tall_horizontal.desktop.slide = true;
+    await assert.rejects(cms.uploadBanner(banner, [image({ media: 'mobile' })]), /select at least one placement/);
     await assert.rejects(cms.uploadBanner(banner, [image({ dimensions: { width: 1600, height: 900 } })]), /unsupported aspect/);
     await assert.rejects(cms.uploadBanner(banner, [image(), image({ url: 'https://other.example/image.png' })]), /only one asset/);
 });
 
+test('Dealer.com defaults to matching ratio/device destinations without global placement controls', async () => {
+    const payloads = [];
+    const { DealerDotComCMS, BannerInput } = runtime({
+        unsafeWindow: { ddc: { global: { account: { accountId: 'a' }, actualUser: { userId: 'u' } } } },
+        fetch: async (url, options) => { payloads.push(JSON.parse(options.body)); return { ok: true, json: async () => ({ id: 99 }) }; }
+    }, 'DealerDotComCMS');
+    const cms = new DealerDotComCMS();
+    cms.init = async () => {};
+    cms.uploadImage = async () => 'asset.png';
+    assert.equal(cms.getFields().some(field => field.type === 'checkbox'), false);
+    for (const [width, height, media, placement, expected] of [
+        [2000, 500, 'desktop', 'tall_horizontal', { slide: true }],
+        [2000, 200, 'desktop', 'short_horizontal', { slide: true, srp: true }],
+        [1080, 1920, 'desktop', 'tall_vertical', { srp: true }],
+        [1080, 1920, 'mobile', 'tall_vertical', { srp: true }],
+        [800, 600, 'desktop', 'short_vertical', { coupon: true }],
+        [800, 600, 'mobile', 'short_vertical', { coupon: true, srp: true }]
+    ]) {
+        const preparedImage = image({ media, dimensions: { width, height } });
+        await cms.uploadBanner(BannerInput.normalize(raw()), [preparedImage]);
+        const placements = payloads.at(-1).placement.en_us;
+        assert.deepEqual(placements[placement][media], expected);
+        for (const [otherPlacement, entry] of Object.entries(placements)) {
+            assert.equal(entry.enabled, otherPlacement === placement);
+            for (const device of ['desktop', 'mobile']) {
+                if (otherPlacement !== placement || device !== media) assert.ok(Object.values(entry[device] ?? {}).every(value => value === false));
+            }
+        }
+        assert.match(cms.describeImages([preparedImage]), new RegExp(`${width} × ${height}`));
+    }
+    assert.equal(DealerDotComCMS.detectPlacementType(2010, 500), 'tall_horizontal');
+    assert.equal(DealerDotComCMS.detectPlacementType(0, 0), null);
+});
+
+test('Dealer.com shares a detected asset across both devices when the URL is the same', async () => {
+    let payload, uploads = 0;
+    const { DealerDotComCMS, BannerInput } = runtime({
+        unsafeWindow: { ddc: { global: { account: { accountId: 'a' }, actualUser: { userId: 'u' } } } },
+        fetch: async (url, options) => { payload = JSON.parse(options.body); return { ok: true, json: async () => ({ id: 99 }) }; }
+    }, 'DealerDotComCMS');
+    const cms = new DealerDotComCMS();
+    cms.init = async () => {};
+    cms.uploadImage = async () => { uploads++; return 'asset.png'; };
+    await cms.uploadBanner(BannerInput.normalize(raw()), [
+        image({ dimensions: { width: 800, height: 600 } }),
+        image({ dimensions: { width: 800, height: 600 }, media: 'mobile' })
+    ]);
+    assert.equal(uploads, 1);
+    assert.deepEqual(payload.placement.en_us.short_vertical.desktop, { coupon: true });
+    assert.deepEqual(payload.placement.en_us.short_vertical.mobile, { coupon: true, srp: true });
+});
+
 function fakeRow(value) {
     const elements = new Map();
-    for (const selector of ['textarea', '.wpsoc-warnings', '.wpsoc-progress-container', '.wpsoc-progress-fill', '.wpsoc-progress-status']) elements.set(selector, { value, disabled: false, textContent: '', style: {}, classList: { add() {}, remove() {} } });
-    return { dataset: { id: 'banner-1' }, querySelector: selector => elements.get(selector) };
+    for (const selector of ['textarea', '.wpsoc-banner-title', '.wpsoc-image-preview', '.wpsoc-warnings', '.wpsoc-progress-container', '.wpsoc-progress-fill', '.wpsoc-progress-status']) elements.set(selector, Object.assign(new TestElement(), { value }));
+    return { isConnected: true, dataset: { id: 'banner-1' }, querySelector: selector => elements.get(selector), querySelectorAll: () => checkboxes(elements.get('.wpsoc-image-preview')) };
+}
+class TestElement {
+    children = []; style = {}; disabled = false; events = {};
+    classList = { add() {}, remove() {} };
+    set textContent(value) { this.text = value; this.children = []; }
+    get textContent() { return this.text ?? ''; }
+    appendChild(child) { this.children.push(child); }
+    addEventListener(event, handler) { this.events[event] = handler; }
+}
+function checkboxes(element) {
+    return element.children.flatMap(child => child.type === 'checkbox' ? [child] : checkboxes(child));
 }
 function fakeUI(cms, value) {
     const alerts = [];
-    const { UIManager, EventBus } = runtime({ alert: message => alerts.push(message) });
+    const { UIManager, EventBus } = runtime({ alert: message => alerts.push(message), document: {
+        createElement: () => new TestElement(), createTextNode: value => Object.assign(new TestElement(), { textContent: value })
+    } });
     const ui = new UIManager(new EventBus(), cms, { prefetchBannerImages: async () => [image()] });
     const row = fakeRow(value);
     ui.bannersContainer = { querySelectorAll: () => [row] };
@@ -271,6 +333,116 @@ function fakeUI(cms, value) {
     ui.overlay = { querySelectorAll: () => controls };
     return { ui, row, controls, alerts };
 }
+
+test('per-banner placement choices start from media, stay isolated, and survive text edits', () => {
+    const { DealerDotComCMS } = runtime({}, 'DealerDotComCMS');
+    const cms = new DealerDotComCMS({ accountId: 'a', userId: 'u' });
+    const banner = raw();
+    const groups = cms.getImageOptions([image({ dimensions: { width: 800, height: 600 }, media: 'mobile' })]);
+    const { ui, row } = fakeUI(cms, JSON.stringify(banner));
+    const otherRow = fakeRow(JSON.stringify(banner));
+    ui.renderImageOptions(row, banner, groups);
+    ui.renderImageOptions(otherRow, banner, groups);
+    const inputs = checkboxes(row.querySelector('.wpsoc-image-preview'));
+    assert.deepEqual(inputs.map(input => input.checked), [false, true, true]);
+    inputs[0].checked = true; inputs[0].events.change();
+    inputs[2].checked = false; inputs[2].events.change();
+    assert.deepEqual(plain(row.uploadOptions.placements[groups[0].key]), ['mobile.coupon', 'desktop.coupon']);
+    assert.deepEqual(plain(otherRow.uploadOptions.placements[groups[0].key]), ['mobile.coupon', 'mobile.srp']);
+    ui.renderImageOptions(row, { ...banner, title: 'Edited title' }, groups);
+    assert.deepEqual(checkboxes(row.querySelector('.wpsoc-image-preview')).map(input => input.checked), [true, true, false]);
+    for (const input of checkboxes(row.querySelector('.wpsoc-image-preview'))) { input.checked = false; input.events.change(); }
+    ui.renderImageOptions(row, banner, groups);
+    assert.deepEqual(plain(row.uploadOptions.placements[groups[0].key]), [], 'An explicit empty choice must not revert to defaults');
+    const updated = { ...banner, images: [{ ...banner.images[0], media: 'mobile' }] };
+    ui.renderImageOptions(row, updated, groups);
+    assert.deepEqual(plain(row.uploadOptions.placements[groups[0].key]), ['mobile.coupon', 'mobile.srp']);
+});
+
+test('Dealer.com sends only each banner\'s selected placements, including media overrides', async () => {
+    const payloads = [];
+    let uploads = 0;
+    const { DealerDotComCMS, BannerInput } = runtime({ fetch: async (url, options) => {
+        payloads.push(JSON.parse(options.body)); return { ok: true, json: async () => ({ id: 99 }) };
+    } }, 'DealerDotComCMS');
+    const cms = new DealerDotComCMS({ accountId: 'a', userId: 'u' });
+    cms.init = async () => {};
+    cms.uploadImage = async () => { uploads++; return 'asset.png'; };
+    const images = [image({ dimensions: { width: 800, height: 600 }, media: 'mobile' })];
+    const key = cms.getImageOptions(images)[0].key;
+    const banner = BannerInput.normalize(raw());
+    await cms.uploadBanner(banner, images, { placements: { [key]: ['desktop.coupon'] } });
+    await cms.uploadBanner(banner, images, { placements: { [key]: ['mobile.srp'] } });
+    assert.deepEqual(payloads[0].placement.en_us.short_vertical.desktop, { coupon: true });
+    assert.deepEqual(payloads[0].placement.en_us.short_vertical.mobile, { coupon: false, srp: false });
+    assert.deepEqual(payloads[1].placement.en_us.short_vertical.desktop, { coupon: false });
+    assert.deepEqual(payloads[1].placement.en_us.short_vertical.mobile, { coupon: false, srp: true });
+    await assert.rejects(cms.uploadBanner(banner, images, { placements: { [key]: [] } }), /select at least one/);
+    await assert.rejects(cms.uploadBanner(banner, images, { placements: { [key]: ['mobile.slide'] } }), /unsupported placement/);
+    await assert.rejects(cms.uploadBanner(banner, images, { placements: {} }), /select at least one/);
+    assert.equal(uploads, 2);
+});
+
+test('UI requires placement preview before upload and passes reviewed choices to the adapter', async () => {
+    const { DealerDotComCMS } = runtime({}, 'DealerDotComCMS');
+    const cms = new DealerDotComCMS({ accountId: 'a', userId: 'u' });
+    const value = JSON.stringify(raw());
+    const { ui, row } = fakeUI(cms, value);
+    let uploads = 0, selected;
+    cms.init = async () => {};
+    cms.uploadBanner = async (banner, images, options) => { uploads++; selected = options; return {}; };
+    await ui.submit();
+    assert.equal(uploads, 0);
+    assert.equal(row.imageOptionsReady, true);
+    const input = checkboxes(row.querySelector('.wpsoc-image-preview'))[0];
+    input.checked = false; input.events.change();
+    await ui.submit();
+    assert.equal(uploads, 0);
+    assert.match(row.querySelector('.wpsoc-progress-status').textContent, /Select at least one/);
+    input.checked = true; input.events.change();
+    await ui.submit();
+    assert.equal(uploads, 1);
+    assert.equal(selected, row.uploadOptions);
+    assert.equal(input.disabled, true, 'Completed banners must not show editable placement choices');
+});
+
+test('placement previews ignore stale downloads and clear when input is removed', async () => {
+    const pending = [];
+    const value = JSON.stringify(raw());
+    const { ui, row } = fakeUI({ describeImages: images => images[0].filename }, value);
+    ui.imageManager.prefetchBannerImages = () => new Promise(resolve => pending.push(resolve));
+    const first = ui.previewBanner(row, value);
+    assert.match(row.querySelector('.wpsoc-image-preview').textContent, /Detecting/);
+    const newerValue = JSON.stringify({ ...raw(), title: 'New banner' });
+    row.querySelector('textarea').value = newerValue;
+    const second = ui.previewBanner(row, newerValue);
+    pending[1]([image({ filename: 'new.png' })]);
+    await second;
+    assert.match(row.querySelector('.wpsoc-image-preview').textContent, /new.png/);
+    pending[0]([image({ filename: 'old.png' })]);
+    await first;
+    assert.doesNotMatch(row.querySelector('.wpsoc-image-preview').textContent, /old.png/);
+    const third = ui.previewBanner(row, newerValue);
+    row.querySelector('textarea').value = '';
+    await ui.previewBanner(row, '');
+    pending[2]([image()]);
+    await third;
+    assert.equal(row.querySelector('.wpsoc-image-preview').textContent, '');
+});
+
+test('placement preview shows image errors and leaves other CMS adapters unchanged', async () => {
+    const value = JSON.stringify(raw());
+    const { ui, row } = fakeUI({ describeImages() { throw new Error('unsupported aspect ratio'); } }, value);
+    await ui.previewBanner(row, value);
+    assert.match(row.querySelector('.wpsoc-image-preview').textContent, /unsupported aspect ratio/);
+    ui.imageManager.prefetchBannerImages = async () => { throw new Error('Download failed'); };
+    await ui.previewBanner(row, value);
+    assert.match(row.querySelector('.wpsoc-image-preview').textContent, /Download failed/);
+    delete ui.cms.describeImages;
+    ui.imageManager.prefetchBannerImages = async () => assert.fail('Other CMSes should not prefetch on input');
+    await ui.previewBanner(row, value);
+    assert.equal(row.querySelector('.wpsoc-image-preview').textContent, '');
+});
 
 test('UI validates JSON before CMS work, then unlocks after initialization failure', async () => {
     let calls = 0;

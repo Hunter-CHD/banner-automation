@@ -37,20 +37,21 @@ class DealerDotComCMS{
 
         this.mediaRoot = null;
         this.promotionType = "AUTO";
-        this.placements = {
+        // Supported destinations from the original uploader, keyed by ratio and device.
+        this.placementTypes = {
             tall_horizontal: {
-                desktop: { slide: false }
+                desktop: ["slide"]
             },
             short_horizontal: {
-                desktop: { slide: false, srp: false }
+                desktop: ["slide", "srp"]
             },
             tall_vertical: {
-                desktop: { srp: false },
-                mobile: { srp: false }
+                desktop: ["srp"],
+                mobile: ["srp"]
             },
             short_vertical: {
-                desktop: { coupon: false },
-                mobile: { coupon: false, srp: false }
+                desktop: ["coupon"],
+                mobile: ["coupon", "srp"]
             }
         };
     }
@@ -61,20 +62,10 @@ class DealerDotComCMS{
     }
 
     getFields() {
-        const fields = [{ key: "promotionType", type: "select", label: "Promotion type", value: "AUTO",
+        return [{ key: "promotionType", type: "select", label: "Promotion type", value: "AUTO",
             options: ["AUTO", "VEHICLE", "EVENT", "SERVICE", "PARTS", "INCENTIVE"].map(value => ({ value, label: value === "AUTO" ? "Automatic (vehicle info → Vehicle; otherwise Event)" : value })),
             onChange: value => { this.promotionType = value; }
         }];
-        for (const [ratio, devices] of Object.entries(this.placements)) {
-            for (const [device, placements] of Object.entries(devices)) {
-                for (const placement of Object.keys(placements)) fields.push({
-                    key: `${ratio}_${device}_${placement}`, type: "checkbox",
-                    label: `${ratio.replaceAll("_", " ")} / ${device} / ${placement}`,
-                    onChange: value => { placements[placement] = value; }
-                });
-            }
-        }
-        return fields;
     }
 
     getType(banner) {
@@ -82,33 +73,62 @@ class DealerDotComCMS{
     }
 
     getWarnings(banner) {
-        const warnings = ["Dealer.com requires selecting placements that match each image's aspect ratio and media.", "The current Dealer.com request does not send image alt text."];
+        const warnings = ["The current Dealer.com request does not send image alt text."];
         if (banner.links.length > 2) warnings.push("Dealer.com uses the first two ordered links.");
         const type = this.getType(banner);
         if (type === "VEHICLE" && (banner.vehicle?.year || banner.vehicle?.trim)) warnings.push("Dealer.com vehicle targeting currently uses make and model only.");
         if (type === "INCENTIVE") warnings.push("Incentive uploads set year and make only; select the incentive and vehicle image in the CMS afterward.");
         if (banner.vehicle && !["VEHICLE", "INCENTIVE"].includes(type)) warnings.push("Vehicle info is not applied to this promotion type.");
-        if (banner.hidden_desktop || banner.hidden_mobile) warnings.push("Device visibility flags apply only to DealerOn; use placement controls here.");
+        if (banner.hidden_desktop || banner.hidden_mobile) warnings.push("Device visibility flags apply only to DealerOn; review the device placements selected below for Dealer.com.");
         return warnings;
     }
 
     static detectPlacementType(width, height) {
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
         const ratio = width / height;
         return Object.entries({ tall_horizontal: 4, short_horizontal: 10, tall_vertical: 9 / 16, short_vertical: 4 / 3 })
             .find(([, expected]) => Math.abs(ratio - expected) < 0.2)?.[0] ?? null;
     }
 
-    prepareImages(images) {
+    getImageOptions(images) {
         const assets = new Map();
-        return images.map(image => {
+        for (const image of images) {
             const placement = DealerDotComCMS.detectPlacementType(image.dimensions.width, image.dimensions.height);
             if (!placement) throw new Error(`${image.filename}: unsupported aspect ratio; use 4:1, 10:1, 9:16, or 4:3`);
-            const selected = this.placements[placement]?.[image.media];
-            if (!selected || !Object.values(selected).some(Boolean)) throw new Error(`${image.filename}: select a ${image.media} placement for ${placement}`);
-            if (assets.has(placement) && assets.get(placement) !== image.url) throw new Error(`Dealer.com allows only one asset for ${placement}; use different aspect ratios for different images`);
-            assets.set(placement, image.url);
-            return { ...image, placement };
+            if (assets.has(placement) && assets.get(placement).image.url !== image.url) throw new Error(`Dealer.com allows only one asset for ${placement}; use different aspect ratios for different images`);
+            if (!assets.has(placement)) assets.set(placement, { image, placement, media: new Set() });
+            assets.get(placement).media.add(image.media);
+        }
+        const labels = { slide: "Slide", srp: "SRP", coupon: "Coupon" };
+        const titles = {
+            tall_horizontal: "Tall Horizontal (4:1)", short_horizontal: "Short Horizontal (10:1)",
+            tall_vertical: "Tall Vertical (9:16)", short_vertical: "Short Vertical (4:3)"
+        };
+        return Array.from(assets.values(), ({ image, placement, media }) => ({
+            key: JSON.stringify([placement, image.url]),
+            image,
+            placement,
+            label: `${image.filename} (${image.dimensions.width} × ${image.dimensions.height}) — ${placement.replaceAll("_", " ")}`,
+            title: titles[placement],
+            description: `${image.filename} · ${image.dimensions.width} × ${image.dimensions.height}`,
+            options: Object.entries(this.placementTypes[placement]).flatMap(([device, destinations]) => destinations.map(destination => ({
+                value: `${device}.${destination}`, label: `${device === "desktop" ? "Desktop" : "Mobile"} ${labels[destination]}`,
+                deviceLabel: device === "desktop" ? "Desktop" : "Mobile", shortLabel: labels[destination], checked: media.has(device)
+            })))
+        }));
+    }
+
+    prepareImages(images, selections) {
+        return this.getImageOptions(images).map(group => {
+            const selected = selections === undefined ? group.options.filter(option => option.checked).map(option => option.value) : selections[group.key];
+            if (!Array.isArray(selected) || !selected.length) throw new Error(`${group.image.filename}: select at least one placement`);
+            if (selected.some(value => !group.options.some(option => option.value === value))) throw new Error(`${group.image.filename}: unsupported placement selection`);
+            return { ...group.image, placement: group.placement, destinations: [...new Set(selected)] };
         });
+    }
+
+    describeImages(images) {
+        return this.getImageOptions(images).map(group => group.label).join("\n");
     }
 
     async getMediaRoot(){
@@ -230,8 +250,8 @@ class DealerDotComCMS{
         return uploadedImage;
     }
 
-    async uploadBanner(banner, cachedImages = []){
-        const prepared = this.prepareImages(cachedImages);
+    async uploadBanner(banner, cachedImages = [], options = {}){
+        const prepared = this.prepareImages(cachedImages, options.placements);
         if (!prepared.length) throw new Error("No images prepared for upload");
         await this.init();
         const uploadedImages = [];
@@ -285,14 +305,14 @@ class DealerDotComCMS{
             }
         };
 
-        // build placement object from this.placements with enabled flags
+        // Start with all destinations disabled for this banner, then enable detected ones.
         const placementData = {};
-        for (const [placementType, devices] of Object.entries(this.placements)) {
+        for (const [placementType, devices] of Object.entries(this.placementTypes)) {
             placementData[placementType] = {
                 customAsset: "",
                 customAssetVideo: "",
                 enabled: false,
-                ...Object.fromEntries(Object.entries(devices).map(([device, flags]) => [device, Object.fromEntries(Object.keys(flags).map(flag => [flag, false]))]))
+                ...Object.fromEntries(Object.entries(devices).map(([device, destinations]) => [device, Object.fromEntries(destinations.map(destination => [destination, false]))]))
             };
         }
 
@@ -301,7 +321,10 @@ class DealerDotComCMS{
             if (img.placement && placementData[img.placement]) {
                 placementData[img.placement].customAsset = img.cmsUrl;
                 placementData[img.placement].enabled = true;
-                placementData[img.placement][img.media] = { ...this.placements[img.placement][img.media] };
+                for (const destination of img.destinations) {
+                    const [device, name] = destination.split(".");
+                    placementData[img.placement][device][name] = true;
+                }
             }
         });
 

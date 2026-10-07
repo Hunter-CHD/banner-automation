@@ -15,7 +15,7 @@ Tampermonkey uploaders for Dealer E-Process, DealerOn, Dealer Inspire (DI), and 
 
 3. Push the userscripts, `lib/`, and `cms/` to that repository/ref.
 4. Open the **raw** GitHub URL of the appropriate root `.user.js` file and install it in Tampermonkey. Disable any previously installed standalone version for that CMS.
-5. Visit the matching CMS page while signed in, click **+ Banners**, choose the campaign/slider/placements where applicable, paste one banner object per row, and click **Create All Banners**.
+5. Visit the matching CMS page while signed in, click **+ Banners**, choose the campaign/slider where applicable, and paste one banner object per row. For Dealer.com, review the detected placement choices beneath each row, then click **Create All Banners**.
 
 The checked-in `YOUR_GITHUB_OWNER/YOUR_REPOSITORY` URLs are placeholders and must be configured. Tampermonkey loads [`@require` dependencies before the userscript](https://www.tampermonkey.net/documentation.php#meta:require). Dependencies are managed/cached by Tampermonkey, not fetched fresh by this code on every page visit. For releases, update the dependency ref, bump the userscript versions, and update/reinstall the userscripts.
 
@@ -62,9 +62,20 @@ The common input does not imply every CMS request supports every field. The uplo
 | Dealer E-Process | First desktop image, or first image if none is desktop; sends its filename and alt text | First ordered link; the existing request has no new-tab option | Start/end calendar dates in browser timezone; choose a campaign in the UI. Appends to existing ads and verifies the saved IDs. |
 | DealerOn | First desktop image, or first image if none is desktop; sends its filename and alt text | Existing gallery request does not set a destination; configure it in the CMS | Exact start/end timestamps, disclaimer as comments, explicit device visibility flags. |
 | DI | First image per device; if only one device is supplied, reuse it for both; sends filenames and alt text | First ordered link and target | Publishes immediately; `start_date` is not scheduled. Expiration is a calendar date in browser timezone. Choose a slider in the UI. |
-| Dealer.com | Up to four entries, assigned by aspect ratio and `media`; one asset per ratio | First two ordered links and their targets; button labels default to “Learn More” | Exact timestamps, description, disclaimer. Automatic type uses Vehicle when vehicle info is populated, otherwise Event. Explicit type and placement controls are in the UI. |
+| Dealer.com | Up to four entries; aspect ratio determines available placements, `media` preselects suggestions, and per-banner choices determine the upload; one asset per ratio | First two ordered links and their targets; button labels default to “Learn More” | Exact timestamps, description, disclaimer. Automatic type uses Vehicle when vehicle info is populated, otherwise Event. The UI also allows an explicit promotion type. |
 
-Dealer.com accepts 4:1 (tall horizontal), 10:1 (short horizontal), 9:16 (tall vertical), and 4:3 (short vertical), using the original ratio tolerance of 0.2. Select matching device/placement checkboxes. Unsupported dimensions, unselected placements, and different assets competing for one ratio fail before uploading that banner's images. A selection for a device without a corresponding input image remains disabled in the payload. The sample's 1600×900 image is not a supported Dealer.com placement; use one of the supported dimensions.
+Dealer.com downloads and measures images when valid banner JSON is pasted, using the shared image cache. Each banner gets its own placement checkboxes for the detected ratios, using the original ratio tolerance of 0.2. All destinations matching an image's `media` start checked. You can uncheck individual destinations or select another supported device; the upload uses your final choices:
+
+| Aspect ratio | Desktop destinations | Mobile destinations |
+| --- | --- | --- |
+| 4:1 — tall horizontal | Slide | Unsupported |
+| 10:1 — short horizontal | Slide, SRP | Unsupported |
+| 9:16 — tall vertical | SRP | SRP |
+| 4:3 — short vertical | Coupon | Coupon, SRP |
+
+Choices are independent for each banner, even when banners share an image URL. A batch can contain different aspect ratios. Choose at least one destination per image. When `media` has no supported destination for a detected ratio, nothing is preselected; select a supported destination yourself. The same image URL supplied for both devices is shown as one group with both devices preselected where supported.
+
+Editing the title or other text preserves placement choices. Changing image URLs or media resets the suggestions for that banner. If the choices have not loaded when you submit, the uploader loads them and asks you to review them before submitting again. Unsupported dimensions, invalid/empty selections, and different image URLs competing for one ratio fail before uploading that banner's images. Placement choices live in the uploader UI; the shared JSON input format is unchanged. The sample's 1600×900 image is not a supported Dealer.com placement; use one of the supported dimensions.
 
 Dealer.com's current request has no image-alt field. Vehicle promotions apply the original new-condition, make, and model rules; year and trim are not mapped. Incentive mode retains the original year/make fields and still needs incentive/image configuration in the CMS. Description and vehicle targeting are not sent by the other three adapters. Device visibility flags apply only to DealerOn.
 
@@ -86,7 +97,7 @@ archive/                  Historical standalone backup; do not install
 
 Each dependency registers its class on `globalThis.BannerAutomation` inside the userscript sandbox, so dependencies do not rely on top-level lexical bindings crossing script wrappers. CMS adapters receive normalized banners and prepared image objects (`blob`, `dimensions`, `filetype`, plus the input metadata).
 
-An adapter implements `init()` and `uploadBanner(banner, images)`. Optional hooks: `getFields()` for UI controls, `getWarnings(banner)`, `selectImages(banner)`, `prepareBatch()` for selection/nonce checks, and `finishUpload(successfulResults)` for final campaign saves. Keep CMS-specific fields and HTTP payloads in the adapter.
+An adapter implements `init()` and `uploadBanner(banner, images, options)`. The optional third argument contains per-banner UI choices, separate from the input JSON. Optional hooks: `getFields()` for global UI controls, `getWarnings(banner)`, `selectImages(banner)`, `describeImages(images)` for a cached image preview on paste, `getImageOptions(images)` for per-banner placement groups and defaults, `prepareBatch()` for selection/nonce checks, and `finishUpload(successfulResults)` for final campaign saves. Keep CMS-specific fields and HTTP payloads in the adapter.
 
 ## Verification
 
