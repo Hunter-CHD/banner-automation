@@ -212,7 +212,7 @@ class DealerEProcessCMS {
             disc_link: "",
             disc_text: banner.disclaimer,
             disc_html_flag: false,
-            adv_action: "1",
+            adv_action: !banner.links[0] ? "1" : (banner.links[0].target == "current" ? "2" : "3"), // 1->do nothing, 2->open link in current tab, 3->open link in new tab
             adv_url: banner.links[0]?.url ?? "",
             date_from: startDate,
             date_to: endDate,
