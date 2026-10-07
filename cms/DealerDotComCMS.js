@@ -261,7 +261,7 @@ class DealerDotComCMS{
             uploadedImages.push({ ...image, cmsUrl: uploadedUrls.get(image.url) });
         }
         const [primary, secondary] = banner.links;
-        const cta = link => link ? { type: /^https?:\/\//i.test(link.url) || link.url.startsWith("//") ? "EXTERNAL" : "INTERNAL", openInNewTab: link.target === "new", dynamicParams: null } : null;
+        const cta = link => link ? { type: /^https?:\/\//i.test(link.url) || link.url.startsWith("//") ? "EXTERNAL" : "INTERNAL", openInNewTab: link.target === "new", dynamicParams: {} } : null;
 
         let bannerData = {
             accountId: this.accountId,
