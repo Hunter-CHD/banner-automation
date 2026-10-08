@@ -221,7 +221,7 @@ class DealerOnCMS {
                 throw new Error(`Unable to set banner visibility: Unsupported media type - ${media}`);
                 break;
         }
-        let endpoint = `https://powertrain.dealeron.com/powertrain/vehiclephotos/${banner.dealerId}/Settings?isMobile=${(media == "mobile").toString()}`;
+        let endpoint = `https://powertrain.dealeron.com/powertrain/vehiclephotos/${bannerData.dealerId}/Settings?isMobile=${(media == "mobile").toString()}`;
         const response = await fetch(endpoint, {
             method: "POST",
             credentials: "same-origin",
