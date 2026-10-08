@@ -32,11 +32,9 @@ class DealerInspireCMS {
 
     getWarnings(banner) {
         const warnings = BannerInput.commonWarnings(banner);
-        if (banner.images.length > this.selectImages(banner).length) warnings.push("DI uses the first image for each device; additional images are ignored.");
+        if (banner.images.length > this.selectImages(banner).length) warnings.push("DI uses a max of 2 images -- one for desktop and mobile; additional images are ignored.");
         if (banner.links.length > 1) warnings.push("DI uses only the first ordered link.");
-        if (banner.hidden_desktop || banner.hidden_mobile) warnings.push("Device visibility flags apply only to DealerOn.");
-        if (new Date(banner.start_date) > new Date()) warnings.push("The current DI adapter publishes immediately; it does not schedule start_date.");
-        warnings.push("DI expiration uses calendar dates in the browser's timezone.");
+        if (new Date(banner.start_date) > new Date()) warnings.push("DI publishes (privately) immediately; scheduling can be done through the post publishing options.");
         return warnings;
     }
 

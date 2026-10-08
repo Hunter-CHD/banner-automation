@@ -33,11 +33,8 @@ class DealerEProcessCMS {
 
     getWarnings(banner) {
         const warnings = BannerInput.commonWarnings(banner);
-        if (banner.images.length > 1) warnings.push("Dealer E-Process uses the first desktop image (or the first image if none is desktop).");
-        if (banner.links.length > 1) warnings.push("Dealer E-Process uses only the first ordered link.");
-        if (banner.links[0]?.target === "new") warnings.push("The Dealer E-Process request does not support a new-tab target.");
-        if (banner.hidden_desktop || banner.hidden_mobile) warnings.push("Device visibility flags apply only to DealerOn.");
-        warnings.push("Dealer E-Process schedules calendar dates only, using the browser's timezone.");
+        if (banner.images.length > 1) warnings.push("Dealer E-Process has a max of one image per banner; additional images are ignored.");
+        if (banner.links.length > 1) warnings.push("Dealer E-Process has a max of one link per banner.");
         return warnings;
     }
 

@@ -20,8 +20,7 @@ class DealerOnCMS {
 
     getWarnings(banner) {
         const warnings = BannerInput.commonWarnings(banner);
-        if (banner.images.length > 1) warnings.push("DealerOn uses the first desktop image (or the first image if none is desktop).");
-        if (banner.links.length) warnings.push("The current DealerOn gallery adapter does not set click links; configure the destination in the CMS after upload.");
+        if (banner.images.length > 1) warnings.push("DealerOn has a max of one image per banner; additional images are ignored.");
         return warnings;
     }
 

@@ -69,13 +69,11 @@ class DealerDotComCMS{
     }
 
     getWarnings(banner) {
-        const warnings = ["The current Dealer.com request does not send image alt text."];
-        if (banner.links.length > 2) warnings.push("Dealer.com uses the first two ordered links.");
+        const warnings = [];
+        if (banner.links.length > 2) warnings.push("Dealer.com has a max of two links per banner; additional links are ignored.");
         const type = this.promotionType;
         if (type === "VEHICLE" && (banner.vehicle?.year || banner.vehicle?.trim)) warnings.push("Dealer.com vehicle targeting currently uses make and model only.");
         if (type === "INCENTIVE") warnings.push("Incentive uploads set year and make only; select the incentive and vehicle image in the CMS afterward.");
-        if (banner.vehicle && !["VEHICLE", "INCENTIVE"].includes(type)) warnings.push("Vehicle info is not applied to this promotion type.");
-        if (banner.hidden_desktop || banner.hidden_mobile) warnings.push("Device visibility flags apply only to DealerOn; review the device placements selected below for Dealer.com.");
         return warnings;
     }
 
