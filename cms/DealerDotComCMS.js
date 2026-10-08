@@ -36,7 +36,7 @@ class DealerDotComCMS{
         this.userId = context.userId;
 
         this.mediaRoot = null;
-        this.promotionType = "AUTO";
+        this.promotionType = "EVENT";
         // Supported destinations from the original uploader, keyed by ratio and device.
         this.placementTypes = {
             tall_horizontal: {
@@ -62,20 +62,16 @@ class DealerDotComCMS{
     }
 
     getFields() {
-        return [{ key: "promotionType", type: "select", label: "Promotion type", value: "AUTO",
-            options: ["AUTO", "VEHICLE", "EVENT", "SERVICE", "PARTS", "INCENTIVE"].map(value => ({ value, label: value === "AUTO" ? "Automatic (vehicle info → Vehicle; otherwise Event)" : value })),
+        return [{ key: "promotionType", type: "select", label: "Promotion type", value: "EVENT",
+            options: ["VEHICLE", "EVENT", "SERVICE", "PARTS", "INCENTIVE"].map(value => ({ value, label: value })),
             onChange: value => { this.promotionType = value; }
         }];
-    }
-
-    getType(banner) {
-        return this.promotionType === "AUTO" ? (banner.vehicle && Object.values(banner.vehicle).some(value => value !== "") ? "VEHICLE" : "EVENT") : this.promotionType;
     }
 
     getWarnings(banner) {
         const warnings = ["The current Dealer.com request does not send image alt text."];
         if (banner.links.length > 2) warnings.push("Dealer.com uses the first two ordered links.");
-        const type = this.getType(banner);
+        const type = this.promotionType;
         if (type === "VEHICLE" && (banner.vehicle?.year || banner.vehicle?.trim)) warnings.push("Dealer.com vehicle targeting currently uses make and model only.");
         if (type === "INCENTIVE") warnings.push("Incentive uploads set year and make only; select the incentive and vehicle image in the CMS afterward.");
         if (banner.vehicle && !["VEHICLE", "INCENTIVE"].includes(type)) warnings.push("Vehicle info is not applied to this promotion type.");
@@ -294,7 +290,7 @@ class DealerDotComCMS{
 
             placement: { en_us: {} },
             tags: [],
-            type: this.getType(banner),
+            type: this.promotionType,
             emphasizedType: "DESCRIPTION",
 
             metadata: {
