@@ -21,7 +21,6 @@ class DealerOnCMS {
     getWarnings(banner) {
         const warnings = BannerInput.commonWarnings(banner);
         if (banner.images.length > 1) warnings.push("DealerOn uses the first desktop image (or the first image if none is desktop).");
-        if (banner.links.length) warnings.push("The current DealerOn gallery adapter does not set click links; configure the destination in the CMS after upload.");
         return warnings;
     }
 
@@ -134,15 +133,18 @@ class DealerOnCMS {
             startDate: startDate ?? null,
             endDate: expiresDate ?? null,
             isChanged: true,
-            comments: banner.disclaimer
+            comments: banner.disclaimer,
+            link: banner.links[0]?.url ?? "",
+            linkBlank: banner.links[0]?.target == "new"
         };
-        bannerData = [{...responseData, ...overrides}];
-        await this._editBannerRecord(bannerData);
+        bannerData = {...responseData, ...overrides};
+        await this._editBannerRecord([bannerData]);
 
-
+        bannerData = await this._setHidden(bannerData, "desktop", banner.hidden_desktop);
+        bannerData = await this._setHidden(bannerData, "mobile", banner.hidden_mobile);
 
         return {
-            data: bannerData
+            data: [bannerData]
         };
     }
 
@@ -203,6 +205,36 @@ class DealerOnCMS {
         }
 
         return true;
+    }
+
+    async _setHidden(bannerData, media, isHidden){
+        media = media.toLowerCase();
+        switch(media){
+            case "desktop":
+                bannerData.hideDesktop = isHidden;
+                break;
+            case "mobile":
+                bannerData.hideMobile = isHidden;
+                break;
+            default:
+                throw new Error(`Unable to set banner visibility: Unsupported media type - ${media}`);
+                break;
+        }
+        let endpoint = `https://powertrain.dealeron.com/powertrain/vehiclephotos/${bannerData.dealerId}/Settings?isMobile=${(media == "mobile").toString()}`;
+        const response = await fetch(endpoint, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+                "Accept": "*/*",
+                "authorization": `Bearer ${this.accessToken}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(bannerData)
+        });
+        if(!response.ok){
+            throw new Error(`Error setting banner visibility: ${response.status}`);
+        }
+        return bannerData;
     }
 
     async _fetchAllBanners(){
