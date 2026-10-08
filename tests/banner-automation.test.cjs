@@ -42,6 +42,83 @@ test('normalization uses defaults, preserves input, and sorts links stably', () 
     assert.deepEqual(plain(BannerInput.normalize({ ...raw(), links: [] }).links), []);
 });
 
+test('shared warnings stay empty for description, vehicle data, and device visibility flags', () => {
+    const { BannerInput } = runtime();
+    const banner = BannerInput.normalize({ ...raw(), description: 'Offer details', vehicle: { year: 2026, make: 'Honda', model: 'Civic' }, hidden_desktop: true, hidden_mobile: true });
+    assert.deepEqual(plain(BannerInput.commonWarnings(banner)), []);
+    assert.deepEqual(plain(BannerInput.commonWarnings(BannerInput.normalize(raw()))), []);
+});
+
+test('DealerOn and Dealer E-Process warn at their image and link limits', () => {
+    for (const [adapter, imageWarning, linkWarning] of [
+        ['DealerOnCMS', 'DealerOn has a max of one image per banner; additional images are ignored.', null],
+        ['DealerEProcessCMS', 'Dealer E-Process has a max of one image per banner; additional images are ignored.', 'Dealer E-Process has a max of one link per banner.']
+    ]) {
+        const api = runtime({}, adapter);
+        // Warning hooks do not require authenticated CMS constructor context.
+        const cms = Object.create(api[adapter].prototype);
+        const base = { ...raw(), description: 'Offer details', vehicle: { make: 'Honda' }, hidden_desktop: true, hidden_mobile: true };
+        const warnings = changes => plain(cms.getWarnings(api.BannerInput.normalize({ ...base, ...changes })));
+        assert.deepEqual(warnings({ links: [] }), [], adapter);
+        assert.deepEqual(warnings({}), [], adapter);
+        assert.deepEqual(warnings({ images: [base.images[0], { ...base.images[0], media: 'mobile' }] }), [imageWarning], adapter);
+        assert.deepEqual(warnings({ links: [{ url: '/first' }, { url: '/second' }] }), linkWarning ? [linkWarning] : [], adapter);
+        assert.deepEqual(warnings({ images: [base.images[0], { ...base.images[0], media: 'mobile' }], links: [{ url: '/first' }, { url: '/second' }] }), linkWarning ? [imageWarning, linkWarning] : [imageWarning], adapter);
+    }
+});
+
+test('DI warns about discarded images, extra links, and future private publishing', () => {
+    class FixedDate extends Date {
+        constructor(...args) { super(...(args.length ? args : ['2026-10-08T12:00:00Z'])); }
+    }
+    const { DealerInspireCMS, BannerInput } = runtime({ Date: FixedDate }, 'DealerInspireCMS');
+    const cms = new DealerInspireCMS();
+    const base = { ...raw(), start_date: '2026-10-08T11:00:00Z', description: 'Offer details', vehicle: { make: 'Honda' }, hidden_desktop: true, hidden_mobile: true };
+    const desktop = base.images[0], mobile = { ...desktop, media: 'mobile' };
+    const imageWarning = 'DI uses a max of 2 images -- one for desktop and mobile; additional images are ignored.';
+    const linkWarning = 'DI uses only the first ordered link.';
+    const scheduleWarning = 'DI publishes (privately) immediately; scheduling can be done through the post publishing options.';
+    const warnings = changes => plain(cms.getWarnings(BannerInput.normalize({ ...base, ...changes })));
+    assert.deepEqual(warnings({ links: [] }), []);
+    assert.deepEqual(warnings({}), []);
+    assert.deepEqual(warnings({ images: [desktop, mobile] }), []);
+    assert.deepEqual(warnings({ images: [desktop, { ...desktop, url: 'https://example.com/extra.png' }] }), [imageWarning]);
+    assert.deepEqual(warnings({ images: [desktop, mobile, { ...mobile, url: 'https://example.com/extra.png' }] }), [imageWarning]);
+    assert.deepEqual(warnings({ links: [{ url: '/first' }, { url: '/second' }] }), [linkWarning]);
+    assert.deepEqual(warnings({ start_date: '2026-10-08T12:00:00Z' }), []);
+    assert.deepEqual(warnings({ start_date: '2026-10-08T13:00:00Z' }), [scheduleWarning]);
+    assert.deepEqual(warnings({ images: [desktop, desktop], links: [{ url: '/first' }, { url: '/second' }], start_date: '2026-10-08T13:00:00Z' }), [imageWarning, linkWarning, scheduleWarning]);
+});
+
+test('Dealer.com warns only for extra links and the selected vehicle or incentive limitations', () => {
+    const { DealerDotComCMS, BannerInput } = runtime({}, 'DealerDotComCMS');
+    const cms = new DealerDotComCMS({ accountId: 'a', userId: 'u' });
+    const base = { ...raw(), description: 'Offer details', vehicle: { year: 2026, make: 'Honda', model: 'Civic', trim: 'Sport' }, hidden_desktop: true, hidden_mobile: true };
+    const warnings = changes => plain(cms.getWarnings(BannerInput.normalize({ ...base, ...changes })));
+    const linkWarning = 'Dealer.com has a max of two links per banner; additional links are ignored.';
+    const vehicleWarning = 'Dealer.com vehicle targeting currently uses make and model only.';
+    const incentiveWarning = 'Incentive uploads set year and make only; select the incentive and vehicle image in the CMS afterward.';
+    const links = [{ url: '/first' }, { url: '/second' }, { url: '/third' }];
+    assert.deepEqual(warnings({ links: [] }), []);
+    assert.deepEqual(warnings({}), []);
+    assert.deepEqual(warnings({ links: links.slice(0, 2) }), []);
+    assert.deepEqual(warnings({ links }), [linkWarning]);
+    const field = cms.getFields()[0];
+    for (const type of ['EVENT', 'SERVICE', 'PARTS']) {
+        field.onChange(type);
+        assert.deepEqual(warnings({}), [], type);
+    }
+    field.onChange('VEHICLE');
+    assert.deepEqual(warnings({ vehicle: undefined }), []);
+    assert.deepEqual(warnings({ vehicle: { make: 'Honda', model: 'Civic' } }), []);
+    assert.deepEqual(warnings({ vehicle: { year: 2026 } }), [vehicleWarning]);
+    assert.deepEqual(warnings({ vehicle: { trim: 'Sport' } }), [vehicleWarning]);
+    assert.deepEqual(warnings({ links }), [linkWarning, vehicleWarning]);
+    field.onChange('INCENTIVE');
+    assert.deepEqual(warnings({ vehicle: undefined }), [incentiveWarning]);
+    assert.deepEqual(warnings({ links }), [linkWarning, incentiveWarning]);
+});
+
 test('validation rejects invalid schema, calendar rollovers, and reversed dates', () => {
     const { BannerInput } = runtime();
     for (const [changes, expected] of [
@@ -101,7 +178,6 @@ test('DealerOn maps dates, per-image metadata, filename, and explicit visibility
     assert.equal(payload.altText, 'Save today');
     assert.equal(payload.hideDesktop, false); assert.equal(payload.hideMobile, true);
     assert.equal(payload.startDate, '2026-10-01T14:15:00.000Z');
-    assert.match(cms.getWarnings(BannerInput.normalize(raw())).join(' '), /does not set click links/);
 });
 
 test('Dealer E-Process maps new fields and accepts empty links', async () => {
@@ -234,13 +310,58 @@ test('Dealer.com uses ISO timestamps, ordered primary/secondary links, descripti
     assert.equal(payload.ctaConfig.openInNewTab, true);
     assert.equal(payload.secondaryDestinationUrl, '/second');
     assert.equal(payload.i18n.en_US.description, 'Description');
-    assert.equal(payload.type, 'VEHICLE');
+    assert.equal(payload.type, 'EVENT', 'Vehicle data must not override the default promotion type');
     assert.equal(payload.placement.en_us.tall_horizontal.desktop.slide, true);
     assert.equal(payload.placement.en_us.short_vertical.mobile.coupon, false);
     assert.equal(payload.placement.en_us.short_vertical.enabled, false);
-    assert.equal(payload.rules[0].find(rule => rule.field === 'MODEL').value, 'Civic');
+    assert.equal(payload.rules, undefined);
     await cms.uploadBanner(BannerInput.normalize({ ...raw(), links: [] }), [image()]);
     assert.equal(payload.destinationUrl, null); assert.equal(payload.ctaConfig, null);
+    assert.equal(payload.type, 'EVENT');
+    assert.equal(payload.rules, undefined);
+});
+
+test('Dealer.com uses the explicitly selected promotion type and its corresponding vehicle or coupon fields', async () => {
+    let payload;
+    const { DealerDotComCMS, BannerInput } = runtime({
+        fetch: async (url, options) => { payload = JSON.parse(options.body); return { ok: true, json: async () => ({ id: 99 }) }; }
+    }, 'DealerDotComCMS');
+    const cms = new DealerDotComCMS({ accountId: 'a', userId: 'u' });
+    cms.init = async () => {}; cms.uploadImage = async () => 'cms-asset.png';
+    const field = cms.getFields().find(field => field.key === 'promotionType');
+    assert.equal(field.value, 'EVENT');
+    assert.deepEqual(plain(field.options.map(option => option.value)), ['VEHICLE', 'EVENT', 'SERVICE', 'PARTS', 'INCENTIVE']);
+    const banner = BannerInput.normalize({ ...raw(), vehicle: { year: 2026, make: 'Honda', model: 'Civic', trim: 'Sport' } });
+
+    for (const type of ['VEHICLE', 'INCENTIVE', 'SERVICE', 'PARTS', 'EVENT']) {
+        field.onChange(type);
+        await cms.uploadBanner(banner, [image()]);
+        assert.equal(payload.type, type);
+        if (type === 'VEHICLE') {
+            assert.deepEqual(payload.rules, [[
+                { field: 'CONDITION', operator: 'eq', value: 'new' },
+                { field: 'MAKE', operator: 'eq', value: 'Honda' },
+                { field: 'MODEL', operator: 'eq', value: 'Civic' }
+            ]]);
+        } else {
+            assert.equal(payload.rules, undefined);
+        }
+        if (type === 'INCENTIVE') {
+            assert.equal(payload.year, 2026);
+            assert.equal(payload.make, 'Honda');
+            assert.equal(payload.applicableMake, 'Honda');
+            assert.equal(payload.applicableCondition, 'NEW');
+        } else {
+            assert.equal(payload.applicableCondition, undefined);
+        }
+        if (type === 'SERVICE' || type === 'PARTS') {
+            assert.equal(payload.couponCode, '');
+            assert.equal(payload.discountType, 'NO_DISCOUNT');
+            assert.equal(payload.discountValue, '0');
+        } else {
+            assert.equal(payload.discountType, undefined);
+        }
+    }
 });
 
 test('Dealer.com rejects unsupported dimensions, device combinations, or conflicting assets before uploading', async () => {
