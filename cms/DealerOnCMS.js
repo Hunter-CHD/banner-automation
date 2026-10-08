@@ -138,13 +138,14 @@ class DealerOnCMS {
             link: banner.links[0]?.url ?? "",
             linkBlank: banner.links[0]?.target == "new"
         };
-        bannerData = [{...responseData, ...overrides}];
-        await this._editBannerRecord(bannerData);
+        bannerData = {...responseData, ...overrides};
+        await this._editBannerRecord([bannerData]);
 
-
+        bannerData = await this._setHidden(bannerData, "desktop", banner.hidden_desktop);
+        bannerData = await this._setHidden(bannerData, "mobile", banner.hidden_mobile);
 
         return {
-            data: bannerData
+            data: [bannerData]
         };
     }
 
@@ -205,6 +206,36 @@ class DealerOnCMS {
         }
 
         return true;
+    }
+
+    async _setHidden(bannerData, media, isHidden){
+        media = media.toLowerCase();
+        switch(media){
+            case "desktop":
+                bannerData.hideDesktop = isHidden;
+                break;
+            case "mobile":
+                bannerData.hideMobile = isHidden;
+                break;
+            default:
+                throw new Error(`Unable to set banner visibility: Unsupported media type - ${media}`);
+                break;
+        }
+        let endpoint = `https://powertrain.dealeron.com/powertrain/vehiclephotos/${banner.dealerId}/Settings?isMobile=${(media == "mobile").toString()}`;
+        const response = await fetch(endpoint, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+                "Accept": "*/*",
+                "authorization": `Bearer ${this.accessToken}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(bannerData)
+        });
+        if(!response.ok){
+            throw new Error(`Error setting banner visibility: ${response.status}`);
+        }
+        return bannerData;
     }
 
     async _fetchAllBanners(){
