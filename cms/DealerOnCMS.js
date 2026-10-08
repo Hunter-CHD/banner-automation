@@ -134,7 +134,9 @@ class DealerOnCMS {
             startDate: startDate ?? null,
             endDate: expiresDate ?? null,
             isChanged: true,
-            comments: banner.disclaimer
+            comments: banner.disclaimer,
+            link: banner.links[0]?.url ?? "",
+            linkBlank: banner.links[0]?.target == "new"
         };
         bannerData = [{...responseData, ...overrides}];
         await this._editBannerRecord(bannerData);
